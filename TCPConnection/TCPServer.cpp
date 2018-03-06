@@ -1,13 +1,108 @@
 #include <iostream>
+#include <stdlib.h>
 #include <WS2tcpip.h>		// how windows access sockets
 #include <string>
+#include <sstream>
 
-#pragma comment (lib, "ws2_32.lib")  
+#pragma comment (lib, "ws2_32.lib")  // specifies how compiler process input
 
 // network big endian, pc little endian
+using namespace std;
+
+string decypher(string a);
+string CalcResponse(size_t op, char operand, string a);
+
+string decypher(string a) 
+{
+	string response;
+
+	if (!a.compare("Hi"))
+	{
+		response = "Hi, there!";
+	}
+	else if(!a.compare("help"))
+	{
+		response = "The program can be used as a calculator";
+	}
+	else{
+		size_t oper;		
+
+		if (a.find("+") != string::npos) {
+			oper = a.find("+");
+			response = CalcResponse(oper, '+', a);
+		
+		}
+		else if (a.find("*") != string::npos) {
+			oper = a.find("*");
+			response = CalcResponse(oper, '*', a);
+		}
+		else if (a.find("/") != string::npos) {
+			oper = a.find("/");
+			response = CalcResponse(oper, '/', a);
+		}
+		else if (a.find("-") != string::npos) {
+			oper = a.find("-");
+			response = CalcResponse(oper, '-', a);
+		}
+		else {
+			response = "invalid input";
+		}
+	}
+	return response;
+	
+}
+
+string CalcResponse(size_t op, char operand, string a) {
+	string response;
+	char first[4096 / 2];
+	char second[4096 / 2];
+	char arrchar[4096];
+	int firstValue, secondValue, returnValue;
+
+	strcpy_s(arrchar, a.c_str());
+
+	for (int i = 0; i < op; i++)
+	{
+		first[i] = arrchar[i];
+	}
+
+	for (int i = op + 1; i < 2048; i++)
+	{
+		if (arrchar[i] == '\n' || arrchar[i] == NULL)
+		{
+			break;
+		}
+		second[i - op - 1] = arrchar[i];
+	}
+	firstValue = atoi(first);
+	secondValue = atoi(second);
+
+	if (operand == '+'){
+		returnValue = firstValue + secondValue;
+
+		response = to_string(returnValue);
+	}
+	else if (operand == '-') {
+		returnValue = firstValue - secondValue;
+
+		response = to_string(returnValue);
+	}
+	else if (operand == '*') {
+		returnValue = firstValue * secondValue;
+
+		response = to_string(returnValue);
+	}
+	else {
+		returnValue = firstValue / secondValue;
+
+		response = to_string(returnValue);
+	}
+	return response;
+}
 
 void main()
 {
+
 	int wsOK;  // opening window socket check
 
 	// initialize winsock
@@ -16,7 +111,7 @@ void main()
 
 	if((wsOK = WSAStartup(ver, &wsData)) != 0) 
 	{
-		std::cerr << "Can't Initialize winsock!" << std::endl;  // bailing hard
+		cerr << "Can't Initialize winsock!" << endl;  // bailing hard
 		return;
 	}
 
@@ -24,7 +119,7 @@ void main()
 	SOCKET listening = socket(AF_INET, SOCK_STREAM, 0);  // DGRAM another one check online for function
 	if (listening == INVALID_SOCKET)
 	{
-		std::cerr << "Couldn't create socket" << std::endl;
+		cerr << "Couldn't create socket" << endl;
 		return;
 	}
 
@@ -72,7 +167,38 @@ void main()
 			}
 			else
 			{
+				char buf[4096];
+				ZeroMemory(buf, 4096);
+
 				// accept new message
+				int bytesIn = recv(sock, buf, 4096, 0);
+				if (bytesIn <= 0)
+				{
+					// drop client
+					closesocket(sock);
+					FD_CLR(sock, &master);
+				}
+				else 
+				{
+					// send message to other 
+					for (int i = 0; i < master.fd_count; i++)
+					{
+						SOCKET outSock = master.fd_array[i];
+						if (outSock != listening && outSock == sock)
+						{
+							ostringstream ss;
+							ss << "Socket #" << sock << ":" << decypher(string(buf)) << "\r\n";
+							string strOut = ss.str();
+							send(outSock, strOut.c_str(), strOut.size()+1, 0);
+
+
+							ss.clear();
+							ss << ">";
+							strOut = ss.str();
+							send(outSock, strOut.c_str(), strOut.size() + 1, 0);
+						}
+					}
+				}
 				// send message to other clients and definitely not listening socket
 			}
 		}
@@ -81,73 +207,3 @@ void main()
 	// cleanup winsock
 	WSACleanup();
 }
-
-/*
-select()
-FD_ckr - remove from set
-FD_set -  add to set
-FD_zero - clear set
-
-fd_set - contains all sockets connected
-*/
-
-// support 1 client below
-
-/*// wait for connection
-sockaddr_in client;
-int clientSize = sizeof(client);
-
-SOCKET clientSocket = accept(listening, (sockaddr*)&client, &clientSize);  // connection happens
-if (clientSocket == INVALID_SOCKET)
-{
-std::cout << "socket couldn't connect" << std::endl;
-}
-
-char host[NI_MAXHOST];		// client's remote name  dns_lookup
-char service[NI_MAXHOST];  // Service (port) the client is connect on
-
-ZeroMemory(host, NI_MAXHOST);		// on linux/MAC memset(host, 0, NI_MAXHOST)
-ZeroMemory(service, NI_MAXSERV);	// Zeromemory windows only
-
-// try to look up host name other wise display ip
-if (getnameinfo((sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0)	//if we can get name info (DNS lookup host name)
-{
-std::cout << host << " connect on port " << service << std::endl;
-}
-else
-{
-inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);  //	get IP back as string char
-std::cout << host << " connected on port " << ntohs(client.sin_port) << std::endl;   // network to host short
-}
-
-// close listening socket... won't do if more than 1 client connects
-closesocket(listening);
-
-// while loop: accept and echo messge to client  // here down can put in thread
-char buf[4096];
-
-while (true)
-{
-ZeroMemory(buf, 4096);
-
-// wait for client data
-int bytesReceived = recv(clientSocket, buf, 4096, 0);
-if (bytesReceived == SOCKET_ERROR)
-{
-std::cerr << " Error in recv()" << std::endl;
-break;
-}
-
-if (bytesReceived == 0)
-{
-std::cout << " client disconnected " << std::endl;
-break;
-}
-
-// send message
-send(clientSocket, buf, bytesReceived + 1, 0);
-}
-
-// close socket
-closesocket(clientSocket);
-*/
